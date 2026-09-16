@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>俄罗斯方块 · 彩蛋模式</title>
+<style>
+  :root {
+    --neon-blue: #00d4ff;
+    --neon-purple: #a855f7;
+    --neon-pink: #ff2d95;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: radial-gradient(ellipse at 50% 0%, #101830 0%, #05070f 70%);
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    color: #e8ecf5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+
+  .layout {
+    display: flex;
+    gap: 26px;
+    align-items: flex-start;
+  }
+
+  /* ===== 棋盘 ===== */
+  #board {
+    border-radius: 14px;
+    border: 2px solid rgba(0, 212, 255, 0.4);
+    box-shadow: 0 0 40px rgba(0, 212, 255, 0.15), inset 0 0 30px rgba(0, 0, 0, 0.5);
+    background: rgba(5, 8, 18, 0.9);
+  }
+
+  /* ===== 侧栏 ===== */
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 190px;
+  }
+  .panel {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(0,212,255,0.25);
+    backdrop-filter: blur(8px);
+    border-radius: 14px;
+    padding: 14px 18px;
+    text-align: center;
+  }
+  .panel .label { color: #9aa5c0; font-size: 0.78rem; letter-spacing: 2px; margin-bottom: 4px; }
+  .panel .num {
+    font-size: 1.5rem; font-weight: bold;
+    color: var(--neon-blue);
+    font-variant-numeric: tabular-nums;
+  }
+  .panel .num.pink { color: var(--neon-pink); }
+  #nextCanvas { display: block; margin: 6px auto 0; }
+
+  .keys { font-size: 0.78rem; color: #9aa5c0; line-height: 2; text-align: left; }
+  .keys b { color: var(--neon-blue); }
+
+  .btn {
+    padding: 12px 0;
+    font-size: 0.95rem;
+    font-weight: bold;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+    box-shadow: 0 4px 18px rgba(0, 212, 255, 0.3);
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .btn:hover { transform: scale(1.05); }
+  .btn.ghost {
+    background: transparent;
+    border: 1px solid rgba(0,212,255,0.5);
+    color: var(--neon-blue);
+    box-shadow: none;
+  }
+
+  /* ===== 覆盖层 ===== */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: rgba(5, 7, 15, 0.85);
+    backdrop-filter: blur(6px);
+    text-align: center;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    font-size: 2.8rem;
+    letter-spacing: 8px;
+    background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple), var(--neon-pink), var(--neon-blue));
+    background-size: 300% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: flow 3s linear infinite;
+  }
+  @keyframes flow { to { background-position: 300% center; } }
+  .overlay .desc { color: #9aa5c0; line-height: 1.9; font-size: 0.95rem; }
+  .overlay .desc b { color: var(--neon-blue); }
+  .final-score { font-size: 1.4rem; color: var(--neon-pink); font-weight: bold; }
+  .btn-row { display: flex; gap: 16px; }
+
+  /* ===== 手机按钮 ===== */
+  .touch-pad { display: none; }
+  @media (pointer: coarse) {
+    .touch-pad {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      width: 190px;
+    }
+    .touch-pad button {
+      padding: 14px 0;
+      font-size: 1.2rem;
+      border-radius: 12px;
+      border: 1px solid rgba(0,212,255,0.35);
+      background: rgba(255,255,255,0.06);
+      color: #e8ecf5;
+      cursor: pointer;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .layout { flex-direction: row; padding: 10px; }
+    .side { width: 120px; }
+    .panel .num { font-size: 1.1rem; }
+    .keys-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <canvas id="board"></canvas>
+
+  <div class="side">
+    <div class="panel">
+      <div class="label">得分 SCORE</div>
+      <div class="num" id="scoreEl">0</div>
+    </div>
+    <div class="panel">
+      <div class="label">行数 / 等级</div>
+      <div class="num pink"><span id="linesEl">0</span> / <span id="levelEl">1</span></div>
+    </div>
+    <div class="panel">
+      <div class="label">最高分 BEST</div>
+      <div class="num" id="bestEl">0</div>
+    </div>
+    <div class="panel">
+      <div class="label">下一个 NEXT</div>
+      <canvas id="nextCanvas" width="96" height="60"></canvas>
+    </div>
+    <div class="panel keys-panel">
+      <div class="keys">
+        <b>← →</b> 左右移动<br>
+        <b>↑ / W</b> 旋转<br>
+        <b>↓ / S</b> 加速下落<br>
+        <b>空格</b> 瞬间落地<br>
+        <b>P</b> 暂停
+      </div>
+    </div>
+    <button class="btn" id="pauseBtn">⏸ 暂停</button>
+    <button class="btn ghost" id="backBtn">🏠 返回简历</button>
+
+    <div class="touch-pad">
+      <button data-k="left">◀</button>
+      <button data-k="rotate">🔄</button>
+      <button data-k="right">▶</button>
+      <button data-k="down">▼</button>
+    </div>
+  </div>
+</div>
+
+<!-- 开始界面 -->
+<div class="overlay" id="startScreen">
+  <h1>俄罗斯方块</h1>
+  <div class="desc">
+    🧱 经典玩法：<b>消行得分</b>，四行齐消（Tetris）有巨额奖励！<br>
+    ⚡ 每消 <b>10 行</b> 升一级，方块下落越来越快<br>
+    🎯 空格键 <b>瞬间落地</b>，手速党的浪漫
+  </div>
+  <div class="btn-row">
+    <button class="btn" id="startBtn" style="padding:14px 40px;">🚀 开始游戏</button>
+    <button class="btn ghost" id="backBtn2" style="padding:14px 40px;">🏠 返回简历</button>
+  </div>
+</div>
+
+<!-- 结束界面 -->
+<div class="overlay hidden" id="overScreen">
+  <h1>GAME OVER</h1>
+  <div class="final-score" id="finalScore"></div>
+  <div class="desc" id="overMsg"></div>
+  <div class="btn-row">
+    <button class="btn" id="retryBtn" style="padding:14px 40px;">🔄 再来一局</button>
+    <button class="btn ghost" id="backBtn3" style="padding:14px 40px;">🏠 返回简历</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================
+   俄罗斯方块 · 彩蛋版
+   ===================================================== */
+const COLS = 10, ROWS = 20;
+let CELL = 30;
+const boardCv = document.getElementById("board");
+const ctx = boardCv.getContext("2d");
+const nextCv = document.getElementById("nextCanvas");
+const nctx = nextCv.getContext("2d");
+
+function fitCell() {
+  CELL = Math.max(18, Math.min(30, Math.floor(Math.min((innerHeight - 60) / ROWS, (innerWidth - (innerWidth < 700 ? 160 : 260)) / COLS))));
+  boardCv.width = COLS * CELL;
+  boardCv.height = ROWS * CELL;
+}
+fitCell();
+addEventListener("resize", fitCell);
+
+/* ---------- 方块定义 ---------- */
+const COLORS = {
+  I: "#00d4ff", O: "#ffd700", T: "#a855f7",
+  S: "#00ff88", Z: "#ff2d95", J: "#4d7cff", L: "#ff9f43"
+};
+const SHAPES = {
+  I: [[1,1,1,1]],
+  O: [[1,1],[1,1]],
+  T: [[0,1,0],[1,1,1]],
+  S: [[0,1,1],[1,1,0]],
+  Z: [[1,1,0],[0,1,1]],
+  J: [[1,0,0],[1,1,1]],
+  L: [[0,0,1],[1,1,1]]
+};
+
+/* ---------- 状态 ---------- */
+let grid, cur, next, score, lines, level, best, dropTimer, dropGap, paused, over, playing, flashRows;
+best = parseInt(localStorage.getItem("tetris_best") || "0");
+document.getElementById("bestEl").textContent = best;
+flashRows = [];
+
+function newGrid() {
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+}
+function randPiece() {
+  const keys = Object.keys(SHAPES);
+  const k = keys[Math.floor(Math.random() * keys.length)];
+  const m = SHAPES[k].map(r => [...r]);
+  return { k, m, x: Math.floor((COLS - m[0].length) / 2), y: 0 };
+}
+
+function collide(m, px, py) {
+  for (let r = 0; r < m.length; r++) {
+    for (let c = 0; c < m[r].length; c++) {
+      if (!m[r][c]) continue;
+      const gx = px + c, gy = py + r;
+      if (gx < 0 || gx >= COLS || gy >= ROWS) return true;
+      if (gy >= 0 && grid[gy][gx]) return true;
+    }
+  }
+  return false;
+}
+
+function rotate(m) {
+  const R = m.length, C = m[0].length;
+  const res = Array.from({ length: C }, () => Array(R).fill(0));
+  for (let r = 0; r < R; r++)
+    for (let c = 0; c < C; c++)
+      res[c][R - 1 - r] = m[r][c];
+  return res;
+}
+
+function tryRotate() {
+  const rm = rotate(cur.m);
+  /* 简易踢墙：依次尝试偏移 */
+  for (const dx of [0, -1, 1, -2, 2]) {
+    if (!collide(rm, cur.x + dx, cur.y)) {
+      cur.m = rm; cur.x += dx;
+      return;
+    }
+  }
+}
+
+function merge() {
+  cur.m.forEach((row, r) => row.forEach((v, c) => {
+    if (v && cur.y + r >= 0) grid[cur.y + r][cur.x + c] = cur.k;
+  }));
+}
+
+function clearLines() {
+  const full = [];
+  for (let r = 0; r < ROWS; r++) {
+    if (grid[r].every(v => v)) full.push(r);
+  }
+  if (!full.length) return 0;
+  flashRows = full;
+  setTimeout(() => {
+    full.sort((a, b) => a - b).forEach(r => {
+      grid.splice(r, 1);
+      grid.unshift(Array(COLS).fill(null));
+    });
+    flashRows = [];
+  }, 120);
+  return full.length;
+}
+
+const LINE_SCORE = [0, 100, 300, 500, 800];
+
+function lockPiece() {
+  merge();
+  const n = clearLines();
+  if (n > 0) {
+    score += LINE_SCORE[n] * level;
+    lines += n;
+    level = Math.floor(lines / 10) + 1;
+    dropGap = Math.max(90, 600 - (level - 1) * 55);
+    if (n === 4) showToastInGame("🌟 TETRIS！四连消 +" + LINE_SCORE[4] * level);
+    else showToastInGame(["", "+100", "双消 +300", "三消 +500", ""][n] + " 消行成功！");
+  }
+  cur = next;
+  next = randPiece();
+  drawNext();
+  if (collide(cur.m, cur.x, cur.y)) gameOver();
+  updateHud();
+}
+
+function hardDrop() {
+  let dist = 0;
+  while (!collide(cur.m, cur.x, cur.y + 1)) { cur.y++; dist++; }
+  score += dist * 2;
+  lockPiece();
+}
+
+function move(dx) {
+  if (!collide(cur.m, cur.x + dx, cur.y)) cur.x += dx;
+}
+
+function softDrop() {
+  if (!collide(cur.m, cur.x, cur.y + 1)) { cur.y++; score += 1; updateHud(); }
+  else lockPiece();
+}
+
+/* ---------- HUD ---------- */
+const scoreEl = document.getElementById("scoreEl");
+const linesEl = document.getElementById("linesEl");
+const levelEl = document.getElementById("levelEl");
+function updateHud() {
+  scoreEl.textContent = score;
+  linesEl.textContent = lines;
+  levelEl.textContent = level;
+}
+
+/* ---------- 绘制 ---------- */
+function drawCell(c, x, y, size, ghost) {
+  const px = x * size, py = y * size;
+  ctx.globalAlpha = ghost ? 0.22 : 1;
+  ctx.fillStyle = COLORS[c];
+  ctx.fillRect(px + 1, py + 1, size - 2, size - 2);
+  /* 顶部高光 + 内边框，做出霓虹立体感 */
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.fillRect(px + 1, py + 1, size - 2, 4);
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(px + 1.5, py + 1.5, size - 3, size - 3);
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, boardCv.width, boardCv.height);
+  /* 网格线 */
+  ctx.strokeStyle = "rgba(0,212,255,0.07)";
+  ctx.lineWidth = 1;
+  for (let c = 1; c < COLS; c++) {
+    ctx.beginPath(); ctx.moveTo(c * CELL, 0); ctx.lineTo(c * CELL, ROWS * CELL); ctx.stroke();
+  }
+  for (let r = 1; r < ROWS; r++) {
+    ctx.beginPath(); ctx.moveTo(0, r * CELL); ctx.lineTo(COLS * CELL, r * CELL); ctx.stroke();
+  }
+  if (!grid) return;
+
+  /* 已固定的方块 */
+  grid.forEach((row, r) => row.forEach((v, c) => { if (v) drawCell(v, c, r, CELL, false); }));
+
+  /* 消行闪光 */
+  flashRows.forEach(r => {
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(0, r * CELL, COLS * CELL, CELL);
+  });
+
+  if (playing && cur && !over) {
+    /* 幽灵投影（落点预览） */
+    let gy = cur.y;
+    while (!collide(cur.m, cur.x, gy + 1)) gy++;
+    cur.m.forEach((row, r) => row.forEach((v, c) => {
+      if (v && gy + r >= 0) drawCell(cur.k, cur.x + c, gy + r, CELL, true);
+    }));
+    /* 当前方块 */
+    cur.m.forEach((row, r) => row.forEach((v, c) => {
+      if (v && cur.y + r >= 0) drawCell(cur.k, cur.x + c, cur.y + r, CELL, false);
+    }));
+  }
+}
+
+function drawNext() {
+  nctx.clearRect(0, 0, nextCv.width, nextCv.height);
+  if (!next) return;
+  const s = 20;
+  const ox = (nextCv.width - next.m[0].length * s) / 2;
+  const oy = (nextCv.height - next.m.length * s) / 2;
+  next.m.forEach((row, r) => row.forEach((v, c) => {
+    if (!v) return;
+    nctx.fillStyle = COLORS[next.k];
+    nctx.fillRect(ox + c * s + 1, oy + r * s + 1, s - 2, s - 2);
+    nctx.fillStyle = "rgba(255,255,255,0.25)";
+    nctx.fillRect(ox + c * s + 1, oy + r * s + 1, s - 2, 3);
+  }));
+}
+
+/* ---------- 主循环 ---------- */
+let lastTime = 0, acc = 0;
+function loop(t) {
+  requestAnimationFrame(loop);
+  const dt = t - lastTime;
+  lastTime = t;
+  if (playing && !paused && !over && !flashRows.length) {
+    acc += dt;
+    if (acc > dropGap) {
+      acc = 0;
+      if (!collide(cur.m, cur.x, cur.y + 1)) cur.y++;
+      else lockPiece();
+    }
+  }
+  draw();
+}
+requestAnimationFrame(loop);
+
+/* ---------- 输入 ---------- */
+addEventListener("keydown", e => {
+  if (!playing || paused || over) {
+    if ((e.key === "p" || e.key === "P") && playing && !over) togglePause();
+    return;
+  }
+  switch (e.key) {
+    case "ArrowLeft": move(-1); break;
+    case "ArrowRight": move(1); break;
+    case "ArrowDown": case "s": case "S": softDrop(); break;
+    case "ArrowUp": case "w": case "W": tryRotate(); break;
+    case " ": hardDrop(); break;
+    case "p": case "P": togglePause(); break;
+  }
+  if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase())) e.preventDefault();
+});
+
+document.querySelectorAll(".touch-pad button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (!playing || paused || over) return;
+    const k = btn.dataset.k;
+    if (k === "left") move(-1);
+    if (k === "right") move(1);
+    if (k === "down") softDrop();
+    if (k === "rotate") tryRotate();
+  });
+});
+
+/* ---------- 流程控制 ---------- */
+function startGame() {
+  grid = newGrid();
+  cur = randPiece();
+  next = randPiece();
+  score = 0; lines = 0; level = 1;
+  dropGap = 600; dropTimer = 0; acc = 0;
+  paused = false; over = false; playing = true;
+  updateHud();
+  drawNext();
+  document.getElementById("startScreen").classList.add("hidden");
+  document.getElementById("overScreen").classList.add("hidden");
+  document.getElementById("pauseBtn").textContent = "⏸ 暂停";
+}
+
+function gameOver() {
+  over = true;
+  playing = false;
+  if (score > best) {
+    best = score;
+    localStorage.setItem("tetris_best", best);
+    document.getElementById("bestEl").textContent = best;
+  }
+  document.getElementById("finalScore").textContent = "本局得分：" + score + " · 消行 " + lines;
+  document.getElementById("overMsg").innerHTML =
+    score > 0 && score === best ? "🏆 <b>新纪录诞生！</b> 最高分 " + best : "历史最高分：" + best;
+  document.getElementById("overScreen").classList.remove("hidden");
+}
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById("pauseBtn").textContent = paused ? "▶ 继续" : "⏸ 暂停";
+}
+
+document.getElementById("startBtn").addEventListener("click", startGame);
+document.getElementById("retryBtn").addEventListener("click", startGame);
+document.getElementById("pauseBtn").addEventListener("click", togglePause);
+document.getElementById("backBtn").addEventListener("click", () => location.href = "index.html");
+document.getElementById("backBtn2").addEventListener("click", () => location.href = "index.html");
+document.getElementById("backBtn3").addEventListener("click", () => location.href = "index.html");
+
+/* ---------- 游戏内提示 ---------- */
+let gToastTimer = null;
+function showToastInGame(msg) {
+  if (!msg) return;
+  let t = document.getElementById("gtoast");
+  if (!t) {
+    t = document.createElement("div");
+    t.id = "gtoast";
+    t.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:30;padding:10px 24px;border-radius:999px;background:rgba(255,255,255,0.08);border:1px solid rgba(0,212,255,0.5);backdrop-filter:blur(8px);font-size:0.95rem;transition:opacity 0.3s;pointer-events:none;";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = 1;
+  clearTimeout(gToastTimer);
+  gToastTimer = setTimeout(() => t.style.opacity = 0, 1500);
+}
+</script>
+
+</body>
+</html>
